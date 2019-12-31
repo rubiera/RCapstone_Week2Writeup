@@ -1,0 +1,213 @@
+library(textreadr)
+library(tm)
+library(caret)
+library(tidyverse)
+library(RWeka)
+library(knitr)
+library(quanteda)
+
+
+### turn this entire list of tasks into a loop over really small matrices.
+
+#We load the data and segment it into small chunks that we analyze individually. This 'divide and conquer' method is a quick way to analyze the data given limited computing resources (a laptop).
+
+en_blogs <- 
+  readLines("./../course-data/en_US/en_US.blogs.txt",skipNul = TRUE,warn=FALSE)
+en_news <- 
+  readLines("./../course-data/en_US/en_US.news.txt",skipNul = TRUE,warn=FALSE)
+en_twitter <- 
+  readLines("./../course-data/en_US/en_US.twitter.txt",skipNul = TRUE,warn=FALSE)
+
+str(en_blogs)
+#chr [1:899288]
+str(en_news)
+#chr [1:77259]
+str(en_twitter)
+#chr [1:2360148]
+
+
+#Our first step is to remove symbols. We show an example of a sentence with symbols that we need to remove.
+
+en_blogs[1]
+
+
+#Here is the step in which we remove all of these non-Latin or non-ASCII symbols.
+
+
+en_blogs <- iconv(en_blogs, "latin1", "ASCII", sub="")
+en_news <- iconv(en_news, "latin1", "ASCII", sub="")
+en_twitter <- iconv(en_twitter, "latin1", "ASCII", sub="")
+
+str(en_blogs)
+#chr [1:899288]
+str(en_news)
+#chr [1:77259]
+str(en_twitter)
+#chr [1:2360148]
+
+#Here is an example of symbol removal.
+
+en_blogs[1]
+
+#We next segment the data into small chunks. We will set aside some of these chunks for later analysis, effectively using them as validation and test data. Incrementally adding each chunk will model how a real world application will be expoded to additional words phrases not previously encountered.
+
+skim_blogs_01 <- en_blogs[1:250000]
+skim_news_01 <- en_news[1:25000]
+skim_twitter_01 <- en_twitter[1:500000]
+
+#Here is a sample of sentences from the three data sources (blogs, news, and twitter).
+
+head(skim_blogs_01,3)
+head(skim_news_01,3)
+head(skim_twitter_01,3)
+
+
+## (Task 2) Exploratory Data Analysis of a Medium-sized Sample (10,000 blog sentences)
+
+### corpora medium
+
+skim_blogs_01_medium <- en_blogs[1:10000]
+corpus_blogs_01 <- VCorpus(VectorSource(skim_blogs_01_medium))
+
+######  blogs large (don't do any other large)
+
+myCorpus_blogs_01 = tm_map(corpus_blogs_01, content_transformer(tolower))
+myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, removePunctuation)
+myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, removeNumbers)
+myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, stemDocument)
+myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, 
+                           removeWords,c(stopwords(source = "smart"),"english"))
+
+
+## (Task 2) Questions to Consider
+
+#- Distributions of word frequencies (1-grams).
+
+myDTM_blogs_01 = DocumentTermMatrix(myCorpus_blogs_01,
+                                    control = list(minWordLength = 1))
+
+inspect(myDTM_blogs_01)
+
+#plotting
+myTDM_blogs_01 = TermDocumentMatrix(myCorpus_blogs_01,
+                                    control = list(minWordLength = 1))
+
+inspect(myTDM_blogs_01)
+findFreqTerms(myTDM_blogs_01,100)
+
+
+## (Task 2) Questions to Consider
+
+#- 2-grams and 3-grams word frequencies.
+
+
+# blogs 2 grams
+BigramTokenizer_2gram <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+txtTdmBi_blogs_2gram <- TermDocumentMatrix(myCorpus_blogs_01, 
+                                           control = list(tokenize = BigramTokenizer_2gram))
+inspect(txtTdmBi_blogs_2gram)
+findFreqTerms(txtTdmBi_blogs_2gram,10)
+
+#findAssocs(txtTdmBi_blogs_2gram, "high school", 0.5)
+
+
+
+# blogs 3 grams
+BigramTokenizer_3gram<- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
+txtTdmBi_blogs_3gram<- TermDocumentMatrix(myCorpus_blogs_01, 
+                                          control = list(tokenize = BigramTokenizer_3gram))
+inspect(txtTdmBi_blogs_3gram)
+findFreqTerms(txtTdmBi_blogs_3gram,3)
+
+#findAssocs(txtTdmBi_blogs_3gram, "cricket world cup", 0.5)
+
+## 1000 for plots only
+
+corpus_blogs_small <- VCorpus(VectorSource(skim_blogs_small))
+
+######  blogs small 
+
+myCorpus_blogs_small = tm_map(corpus_blogs_small, content_transformer(tolower))
+myCorpus_blogs_small = tm_map(myCorpus_blogs_small, removePunctuation)
+myCorpus_blogs_small = tm_map(myCorpus_blogs_small, removeNumbers)
+myCorpus_blogs_small = tm_map(myCorpus_blogs_small, stemDocument)
+myCorpus_blogs_small = tm_map(myCorpus_blogs_small, 
+                              removeWords,c(stopwords(source = "smart"),"english"))
+
+#plotting
+myTDM_blogs_small = TermDocumentMatrix(myCorpus_blogs_small,
+                                       control = list(minWordLength = 1))
+
+inspect(myTDM_blogs_small)
+
+# blogs 2 grams
+BigramTokenizer_2gram <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+txtTdmBi_blogs_2gram <- TermDocumentMatrix(myCorpus_blogs_small, 
+                                           control = list(tokenize = BigramTokenizer_2gram))
+inspect(txtTdmBi_blogs_2gram)
+findFreqTerms(txtTdmBi_blogs_2gram,10)
+
+
+
+#findAssocs(txtTdmBi_blogs_2gram, "high school", 0.5)
+
+# blogs 3 grams
+BigramTokenizer_3gram<- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
+txtTdmBi_blogs_3gram<- TermDocumentMatrix(myCorpus_blogs_small, 
+                                          control = list(tokenize = BigramTokenizer_3gram))
+inspect(txtTdmBi_blogs_3gram[500:505, 10:15])
+inspect(txtTdmBi_blogs_3gram)
+findFreqTerms(txtTdmBi_blogs_3gram,3)
+
+## blogs plot and table
+
+matrix_myTDM_blogs_small <- as.matrix(myTDM_blogs_small)
+str(matrix_myTDM_blogs_small)
+dimnames(matrix_myTDM_blogs_small)$Terms[1:10]
+
+matrixsums_myTDM_blogs_small  <- sort(rowSums(matrix_myTDM_blogs_small),decreasing=TRUE)
+matrixDF_myTDM_blogs_small  <- data.frame(word = names(matrixsums_myTDM_blogs_small),
+                                          freq=matrixsums_myTDM_blogs_small)
+
+filtermatrixDF_myTDM_blogs_small <- filter(matrixDF_myTDM_blogs_small, freq >= 400)
+
+filtermatrixDF_myTDM_blogs_small %>%
+  mutate(word = reorder(word, freq)) %>%
+  ggplot(aes(word, freq)) +
+  geom_col() +
+  xlab(NULL) +
+  coord_flip()
+
+kable(filtermatrixDF_myTDM_blogs_small)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#no matrix, just a simple apply to get counts
+lapply(as.matrix(myTDM_blogs_01),rowSums)
+mresult01 <- sort(rowSums(as.matrix(myTDM_blogs_01)), decreasing = TRUE)
+
+
+
+corpus_blogs_small <- VCorpus(VectorSource(skim_blogs_small))
+corpus_news_small <- VCorpus(VectorSource(skim_news_small))
+corpus_twitter_small <- VCorpus(VectorSource(skim_twitter_small))
+
+
+
+

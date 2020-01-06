@@ -1,0 +1,490 @@
+---
+title: "Exploratory N-Gram Model and Draft Next Word Prediction Model"
+author: "Antonio Rubiera"
+date: "12/31/2019"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Introduction
+
+We analyze here a dataset provided by Swiftkey, which is now part of Microsoft (https://www.microsoft.com/en-us/swiftkey?activetab=pivot_1%3aprimaryr2). The dataset provided has sub-data in four languages (Finnish, Russian, German, and English). We analyze the English data here. Here are the steps in this analysis:
+
+Task 2: Exploratory Data Analysis of the Swift English Dataset as an N-Gram Model
+
+Explore 1-grams, 2-grams, and 3-grams in a 70 percent training sample of the dataset to: 
+
+- Understand the distribution of words and relationship between the words in the corpora.
+- Understand frequencies of words and word pairs.
+-	Assess how many unique words are needed in a frequency sorted dictionary to cover (50%,90%) of all word instances in the English dataset.
+
+Use wordnet (https://wordnet.princeton.edu/) to: 
+
+- Evaluate if a word is in the English language, which, by inference, can be used to establish that it is from another language.
+- Explore ways to increase coverage using synonyms sets.
+
+Task 3: Draft "Next Word" Prediction Model
+
+- Explore N-grams in the testing dataset to predict the next word knowing the previous 1, 2, or 3 words.  
+- Explore predictions based on the (N-1) gram to compare use of back-off to the (N-1) gram and/or the use of multiple lower order N-Grams. 
+- Explore techniques to handle unseen N-Grams.
+- Explore how big an N is needed in our N-Gram model to maximize correct predictions while minimizing response time to user and storage requirements.
+
+```{r basic libraries, warning=FALSE, message=FALSE}
+library(textreadr)
+library(tm)
+library(caret)
+library(tidyverse)
+library(RWeka)
+library(knitr)
+library(quanteda)
+library(tidytext)
+library(data.table)
+library(wordnet)
+library(rJava)
+```
+
+We load the data and, outside this markdown, segment it into small chunks that we analyze individually. This 'divide and conquer' method is a quick way to analyze the data given limited computing resources (a laptop).
+
+```{r basic-dataload, warning=FALSE, message=FALSE, cache=TRUE}
+en_blogs <- 
+  readLines("./../course-data/en_US/en_US.blogs.txt",skipNul = TRUE,warn=FALSE)
+en_news <- 
+  readLines("./../course-data/en_US/en_US.news.txt",skipNul = TRUE,warn=FALSE)
+en_twitter <- 
+  readLines("./../course-data/en_US/en_US.twitter.txt",skipNul = TRUE,warn=FALSE)
+
+str(en_blogs)
+#chr [1:899288]
+str(en_news)
+#chr [1:77259]
+str(en_twitter)
+#chr [1:2360148]
+```
+
+Our first step is to remove symbols. We show an example of a sentence with symbols that we need to remove. Notice the symbols before and after "gods" in "pagan gods."
+
+```{r remove-symbols-examples, warning=FALSE, message=FALSE}
+en_blogs[1]
+```
+
+Here is the step in which we remove all of these non-Latin or non-ASCII symbols.
+
+```{r remove-symbols, warning=FALSE, message=FALSE, cache=TRUE}
+en_blogs <- iconv(en_blogs, "latin1", "ASCII", sub="")
+en_news <- iconv(en_news, "latin1", "ASCII", sub="")
+en_twitter <- iconv(en_twitter, "latin1", "ASCII", sub="")
+
+str(en_blogs)
+#chr [1:899288]
+str(en_news)
+#chr [1:77259]
+str(en_twitter)
+#chr [1:2360148]
+```
+
+Here is an example of symbol removal. Notice the symbols before and after "gods" in "pagan gods" are now gone.
+
+```{r remove-symbols-examples-after, warning=FALSE, message=FALSE}
+en_blogs[1]
+```
+
+## Testing Dataset
+
+We next select approximately 70 percent of each of the three data sources (blogs, news, twitter), leaving 20 percent for later validation, and 10 percent as a testing dataset. Once we start using the validation data, we plan to incrementally add data in small chunks to model how a real world application will be exposed to additional words and phrases not previously encountered. Due to the limitations of running within R Markdown with large files, we run on very small selections within this markdown file, and run on much larger samples outside of markdown. The number of sentences used to train our model are:
+
+- "blogs": 600,000 out of 899,288 sentences.
+- "news": 25,000 out of 77,259 sentences.
+- "twitter": 1,500,000 out of 2,360,148 sentences. 
+
+# Task 2: Exploratory Data Analysis Part 1
+
+First, we address the following:
+
+- Understand the distribution of words and relationship between the words in the corpora.
+- Understand frequencies of words and word pairs.
+
+## Distributions of word frequencies (1-grams)
+
+Here is the code for 1-grams running on a very small sample of the blogs data. Running on the corpora in markdown is very slow. We show an example of the code we use for a very small sample of the blogs text, and run on all of our testing data outside of markdown.
+
+```{r 1-gram-blogs-loop, warning=FALSE, message=FALSE}
+matrixDF_TDM_save <- data.frame(word = "", freq = 0 )
+matrixDF_TDM_all <- data.frame(word = "", freq = 0 )
+for (i in 1:100) {
+  #corpus to TDM
+  corpus_blogs_01 <- VCorpus(VectorSource(en_blogs[i]))
+  myCorpus_blogs_01 = tm_map(corpus_blogs_01, content_transformer(tolower))
+  myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, removePunctuation)
+  myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, removeNumbers)
+  myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, stemDocument)
+  myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, 
+                             removeWords,c(stopwords(source = "smart"),"english"))
+  myTDM_blogs_01 = TermDocumentMatrix(myCorpus_blogs_01,
+                                      control = list(minWordLength = 1))
+  matrix_TDM <- as.matrix(myTDM_blogs_01)
+  matrixsums_TDM  <- rowSums(matrix_TDM)
+  matrixDF_TDM  <- data.frame(word=names(matrixsums_TDM),freq=matrixsums_TDM)
+  matrixDF_TDM_all <- rbind(matrixDF_TDM,matrixDF_TDM_save)
+  matrixDF_TDM_save <- matrixDF_TDM_all
+}
+```
+
+Here are the word frequencies for this very small sample, with a table for the data we have plotted.
+
+```{r 1-gram-blogs-plot, warning=FALSE, message=FALSE}
+matrixDF_TDM_toplot <- aggregate(freq ~ word, 
+                                 data=matrixDF_TDM_all,FUN=sum, 
+                                 na.rm = TRUE) 
+matrixDF_TDM_toplot <- matrixDF_TDM_toplot[order(-matrixDF_TDM_toplot$freq),]
+head(matrixDF_TDM_toplot)
+
+matrixDF_TDM_toplot_filter <- filter(matrixDF_TDM_toplot, freq >= 7)
+matrixDF_TDM_toplot_filter %>%
+  mutate(word = reorder(word, freq)) %>%
+  ggplot(aes(word, freq)) +
+  geom_col() +
+  xlab(NULL) +
+  coord_flip()
+kable(matrixDF_TDM_toplot_filter) 
+```
+
+## Distributions of word frequencies (2-grams)
+
+Here is the code for 2-grams running on a very small sample of the blogs data. 
+
+```{r 2-gram-blogs-loop, warning=FALSE, message=FALSE}
+
+BigramTokenizer_2gram <- function(x) NGramTokenizer(x, Weka_control(min = 2, max = 2))
+
+matrixDF_TDM_save <- data.frame(word = "", freq = 0 )
+matrixDF_TDM_all <- data.frame(word = "", freq = 0 )
+for (i in 1:100) {
+  #corpus to TDM
+  corpus_blogs_01 <- VCorpus(VectorSource(en_blogs[i]))
+  myCorpus_blogs_01 = tm_map(corpus_blogs_01, content_transformer(tolower))
+  myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, removePunctuation)
+  myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, removeNumbers)
+  myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, stemDocument)
+  myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, 
+                             removeWords,c(stopwords(source = "smart"),"english"))
+  txtTdmBi_blogs_2gram <- TermDocumentMatrix(myCorpus_blogs_01, 
+                                             control = list(tokenize = BigramTokenizer_2gram))
+  
+  matrix_TDM <- as.matrix(txtTdmBi_blogs_2gram)
+  matrixsums_TDM  <- rowSums(matrix_TDM)
+  matrixDF_TDM  <- data.frame(word=names(matrixsums_TDM),freq=matrixsums_TDM)
+  matrixDF_TDM_all <- rbind(matrixDF_TDM,matrixDF_TDM_save)
+  matrixDF_TDM_save <- matrixDF_TDM_all
+}
+```
+
+Here are the word frequencies for this very small sample, with a table for the data we have plotted.
+
+```{r 2-gram-blogs-plot, warning=FALSE, message=FALSE}
+matrixDF_TDM_toplot <- aggregate(freq ~ word, 
+                                 data=matrixDF_TDM_all,FUN=sum, 
+                                 na.rm = TRUE) 
+matrixDF_TDM_toplot <- matrixDF_TDM_toplot[order(-matrixDF_TDM_toplot$freq),]
+matrixDF_TDM_toplot_filter <- filter(matrixDF_TDM_toplot, freq >= 2)
+kable(matrixDF_TDM_toplot_filter) 
+
+```
+
+## Distributions of word frequencies (3-grams)
+
+Here is the code for 3-grams running on a very small sample of the blogs data.  
+
+```{r 3-gram-blogs-loop, warning=FALSE, message=FALSE}
+
+BigramTokenizer_3gram <- function(x) NGramTokenizer(x, Weka_control(min = 3, max = 3))
+
+matrixDF_TDM_save <- data.frame(word = "", freq = 0 )
+matrixDF_TDM_all <- data.frame(word = "", freq = 0 )
+for (i in 1:100) {
+  #corpus to TDM
+  corpus_blogs_01 <- VCorpus(VectorSource(en_blogs[i]))
+  myCorpus_blogs_01 = tm_map(corpus_blogs_01, content_transformer(tolower))
+  myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, removePunctuation)
+  myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, removeNumbers)
+  myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, stemDocument)
+  myCorpus_blogs_01 = tm_map(myCorpus_blogs_01, 
+                             removeWords,c(stopwords(source = "smart"),"english"))
+  txtTdmBi_blogs_3gram <- TermDocumentMatrix(myCorpus_blogs_01, 
+                                             control = list(tokenize = BigramTokenizer_3gram))
+  
+  matrix_TDM <- as.matrix(txtTdmBi_blogs_3gram)
+  matrixsums_TDM  <- rowSums(matrix_TDM)
+  matrixDF_TDM  <- data.frame(word=names(matrixsums_TDM),freq=matrixsums_TDM)
+  matrixDF_TDM_all <- rbind(matrixDF_TDM,matrixDF_TDM_save)
+  matrixDF_TDM_save <- matrixDF_TDM_all
+}
+```
+
+Here are the word frequencies for this very small sample, with a table for the data we have plotted.
+
+```{r 3-gram-blogs-plot, warning=FALSE, message=FALSE}
+matrixDF_TDM_toplot <- aggregate(freq ~ word, 
+                                 data=matrixDF_TDM_all,FUN=sum, 
+                                 na.rm = TRUE) 
+matrixDF_TDM_toplot <- matrixDF_TDM_toplot[order(-matrixDF_TDM_toplot$freq),]
+head(matrixDF_TDM_toplot)
+matrixDF_TDM_toplot_filter <- filter(matrixDF_TDM_toplot, str_detect(word, "^a[rst]")) 
+kable(matrixDF_TDM_toplot_filter)
+
+```
+
+For some of the exploratory work, and also because we need to understand the Swiftkey dataset, we want to know how words are correlated between small selections of the twitter, blogs, and news subsets of the data, within each-e.g. one twitter selection compared to another twitter selection; and across-e.g. twitter to blogs.
+
+We load small samples of each of the three subsets:
+
+- Twitter
+
+```{r twitter-load-corr, warning=FALSE, message=FALSE, cache=TRUE}
+gram_1_twitter_01 <- read.csv("./../skims/gram_1_twitter/gram_1_twitter_01_1.txt")
+gram_1_twitter_02 <- read.csv("./../skims/gram_1_twitter/gram_1_twitter_01_2.txt")
+
+gram_1_twitter_01 <- gram_1_twitter_01 %>% mutate(doc = "doc_01_1", rank = row_number(), 
+                                                      term_freq = freq/sum(freq), 
+                                                      logtf = log10(term_freq), 
+                                                      logrank = log10(rank))
+gram_1_twitter_02 <- gram_1_twitter_02 %>% mutate(doc = "doc_01_2", rank = row_number(),
+                                                      term_freq = freq/sum(freq), 
+                                                      logtf = log10(term_freq), 
+                                                      logrank = log10(rank))
+
+head(gram_1_twitter_01)
+```
+
+- Blogs
+
+```{r blogs-load-corr, warning=FALSE, message=FALSE, cache=TRUE}
+gram_1_blogs_01 <- read.csv("./../skims/gram_1_blogs/gram_1_blogs_01_1.txt")
+gram_1_blogs_02 <- read.csv("./../skims/gram_1_blogs/gram_1_blogs_01_2.txt")
+
+
+gram_1_blogs_01 <- gram_1_blogs_01 %>% mutate(doc = "doc_01_1", rank = row_number(), 
+                                                  term_freq = freq/sum(freq), 
+                                                  logtf = log10(term_freq), logrank = log10(rank))
+gram_1_blogs_02 <- gram_1_blogs_02 %>% mutate(doc = "doc_01_2", rank = row_number(),
+                                                  term_freq = freq/sum(freq), 
+                                                  logtf = log10(term_freq), logrank = log10(rank))
+
+head(gram_1_blogs_01)
+```
+
+- News
+
+```{r news-load-corr, warning=FALSE, message=FALSE, cache=TRUE}
+gram_1_news <- read.csv("./../skims/gram_all_news/gram_1_news.txt")
+
+gram_1_news_corr <- gram_1_news %>% mutate(doc = "doc_01_1", rank = row_number(), 
+                                                term_freq = freq/sum(freq), 
+                                                logtf = log10(term_freq), logrank = log10(rank))
+
+head(gram_1_news)
+```
+
+
+Here are the correlations comparing within twitter and blogs.
+
+```{r words-within, warning=FALSE, message=FALSE}
+par(mfrow=c(1,2))
+freq_join_gram_1_twitter <- merge(gram_1_twitter_01, gram_1_twitter_02, by = "word")
+freq_join_gram_1_twitter <- filter(freq_join_gram_1_twitter,  freq.x != 0)
+head(freq_join_gram_1_twitter)
+
+plot(freq_join_gram_1_twitter$freq.x,freq_join_gram_1_twitter$freq.y, 
+     type = "p", col = "black", lwd = 1, 
+     xlab = "Twitter Selection 1",
+     ylab = "Twitter Selection 2")
+
+cor.test(freq_join_gram_1_twitter$freq.x,freq_join_gram_1_twitter$freq.y)
+
+freq_join_gram_1_blogs <- merge(gram_1_blogs_01, gram_1_blogs_02, by = "word")
+freq_join_gram_1_blogs <- filter(freq_join_gram_1_blogs,  freq.x != 0)
+head(freq_join_gram_1_blogs)
+
+plot(freq_join_gram_1_blogs$freq.x,freq_join_gram_1_blogs$freq.y, 
+     type = "p", col = "black", lwd = 1, 
+     xlab = "Blogs Selection 1",
+     ylab = "Blogs Selection 2")
+
+cor.test(freq_join_gram_1_blogs$freq.x,freq_join_gram_1_blogs$freq.y)
+```
+
+Here are the cross correlations between twitter, blogs, and news.
+
+```{r words-across, warning=FALSE, message=FALSE}
+par(mfrow=c(1,3))
+
+#### twitter and blogs
+
+freq_join_gram_1_twitter_blogs <- merge(gram_1_twitter_01, gram_1_blogs_01, by = "word")
+freq_join_gram_1_twitter_blogs <- filter(freq_join_gram_1_twitter_blogs,  freq.x != 0)
+head(freq_join_gram_1_twitter_blogs)
+
+plot(freq_join_gram_1_twitter_blogs$freq.x,freq_join_gram_1_twitter_blogs$freq.y,
+          type = "p", col = "black", lwd = 1, 
+          xlab = "Twitter Selection 1",
+          ylab = "Blogs Selection 1")
+
+cor.test(freq_join_gram_1_twitter_blogs$freq.x,freq_join_gram_1_twitter_blogs$freq.y)
+
+
+
+freq_join_gram_1_twitter_news <- merge(gram_1_twitter_01, gram_1_news_corr, by = "word")
+freq_join_gram_1_twitter_news <- filter(freq_join_gram_1_twitter_news,  freq.x != 0)
+head(freq_join_gram_1_twitter_news)
+
+plot(freq_join_gram_1_twitter_news$freq.x,freq_join_gram_1_twitter_news$freq.y,
+          type = "p", col = "black", lwd = 1, 
+          xlab = "Twitter Selection 1",
+          ylab = "News Selection 1")
+
+cor.test(freq_join_gram_1_twitter_news$freq.x,freq_join_gram_1_twitter_news$freq.y)
+
+
+
+freq_join_gram_1_blogs_news <- merge(gram_1_blogs_01, gram_1_news_corr, by = "word")
+freq_join_gram_1_blogs_news <- filter(freq_join_gram_1_blogs_news,  freq.x != 0)
+head(freq_join_gram_1_blogs_news)
+
+plot(freq_join_gram_1_blogs_news$freq.x,freq_join_gram_1_blogs_news$freq.y,
+          type = "p", col = "black", lwd = 1, 
+          xlab = "Blogs Selection 1",
+          ylab = "Newss Selection 1")
+
+cor.test(freq_join_gram_1_blogs_news$freq.x,freq_join_gram_1_blogs_news$freq.y)
+```
+
+## Exploratory Data Analysis of the Training Dataset
+
+All of the scripts used to generate the data we explore here are in the following github repository: (https://github.com/rubiera/RCapstone_Week2Writeup).
+
+The N-Gram counts in the training dataset (combining twitter, blogs, and news datasets) are:
+
+- 1-grams: 477,305 words.
+- 2-grams: 7,884,566 pairs of words.
+- 3-grams: 14,923,896 triple combinations of words.
+
+We manipulate the large files in which we have aggregated counts outside of this report, write results to csv files, and then input those here.
+
+```{r testing-dataload, warning=FALSE, message=FALSE}
+en_gram_1 <- 
+  read.csv("./../skims/merged_grams/en_gram_1_plot.csv", stringsAsFactors = FALSE)
+en_gram_2 <- 
+  read.csv("./../skims/merged_grams/en_gram_2_plot.csv", stringsAsFactors = FALSE)
+en_gram_3 <- 
+  read.csv("./../skims/merged_grams/en_gram_3_plot.csv", stringsAsFactors = FALSE)
+
+str(en_gram_1)
+str(en_gram_2)
+str(en_gram_3)
+```
+
+Here are the most common words found in the testing dataset.
+
+```{r testing-gram-1-common, warning=FALSE, message=FALSE}
+en_gram_1_plot <- filter(en_gram_1, freq > 50000) 
+par(mfrow=c(1,1))
+en_gram_1_plot %>%
+  mutate(word = reorder(word, freq)) %>%
+  ggplot(aes(word, freq)) +
+  geom_col() +
+  xlab(NULL) +
+  coord_flip()
+kable(en_gram_1_plot) 
+```
+
+Here are the most common pairs of words found in the testing dataset.
+
+```{r testing-gram-2-common, warning=FALSE, message=FALSE}
+en_gram_2_plot <- filter(en_gram_2, freq > 2400) 
+par(mfrow=c(1,1))
+en_gram_2_plot %>%
+  mutate(word = reorder(word, freq)) %>%
+  ggplot(aes(word, freq)) +
+  geom_col() +
+  xlab(NULL) +
+  coord_flip()
+kable(en_gram_2_plot) 
+```
+
+Here are the most triple combinations of words found in the testing dataset.
+
+```{r testing-gram-3-common, warning=FALSE, message=FALSE}
+en_gram_3_plot <- filter(en_gram_3, freq > 275) 
+par(mfrow=c(1,1))
+en_gram_3_plot %>%
+  mutate(word = reorder(word, freq)) %>%
+  ggplot(aes(word, freq)) +
+  geom_col() +
+  xlab(NULL) +
+  coord_flip()
+kable(en_gram_3_plot) 
+```
+
+We next assess how many unique words are needed in a frequency sorted dictionary to cover (50%,90%) of all word instances in the English training dataset. We use the stemmed dataset we have been using so far, and leave as a next step to use a pre-stemmed dataset in which every word is valid post checking it in wordnet.
+
+We find a total of 19,974,831 words for the 1-gram 477,305 word instances. The most common instances of words in our 1-gram file that are found "in the wild," but are not correctly words are:
+
+- Words from other languages. Example from Spanish: "socorro," which means "help."
+- Common acronyms used in internet discourse, such as "lol" and "lmao."
+- Words expanded with extra characters for effect, such as "aaannndddddd."
+- Internet addresses, beginning with "http" or "www"
+- Words that have been merged together for effect, usually with periods, which are removed from the corpus in one of our steps, such as "and.that.sucks." These words can be taken out with a length limit regular expression.
+- In such a large number of words, a word with a very low count-e.g. found once, is often a miss-spelled word, or a word from another language.
+
+```{r testing-reject-words-1, warning=FALSE, message=FALSE}
+select_http_www <- read.csv("./../skims/merged_grams/select_http_www.csv", stringsAsFactors = FALSE)
+select_long_words <- read.csv("./../skims/merged_grams/select_long_words.csv", stringsAsFactors = FALSE)
+select_many_vowels <- read.csv("./../skims/merged_grams/select_many_vowels.csv", stringsAsFactors = FALSE)
+select_many_consonants <- read.csv("./../skims/merged_grams/select_many_consonants.csv", stringsAsFactors = FALSE)
+found_once <- read.csv("./../skims/merged_grams/found_once.csv", stringsAsFactors = FALSE)
+```
+
+Here is a sample of some of these.
+
+- Internet web addresses. 
+
+```{r testing-reject-words-2, warning=FALSE, message=FALSE}
+select_http_www
+```
+
+- Very long words, some also internet web addresses. 
+
+```{r testing-reject-words-3, warning=FALSE, message=FALSE}
+select_long_words
+```
+
+- Words with repeated vowels for effect. 
+
+```{r testing-reject-words-4, warning=FALSE, message=FALSE}
+select_many_vowels
+```
+
+- Words with repeated consonants for effect. 
+
+```{r testing-reject-words-5, warning=FALSE, message=FALSE}
+select_many_consonants
+```
+
+- Words found once, here example with ten or fewer characters. 
+
+```{r testing-reject-words-6, warning=FALSE, message=FALSE}
+found_once
+```
+
+We take all of these regular expressions to exclude words that we estimate should not be in our dictionary, with the caveat that this is a draft of our final dictionary. This criteria requires considerable optimization. This rough clean-up takes us from 477,305 words to 440,682 by subtracting 36,623 words. There are additional words that need to be subtracted before we finalize this dictionary.
+As a rough working dictionary, we use the dictionary minus our regular expression criteria, and exclude all words found once. This leaves a 155,365 word dictionary that we can use to assess how many unique words are needed in a frequency sorted dictionary to cover (50%,90%) of all word instances in the English training dataset.
+
+```{r testing-2plus-1, warning=FALSE, message=FALSE}
+en_gram_1_round_2_2plus <- 
+  read.csv("./../skims/merged_grams/en_gram_1_round_2_2plus.csv", stringsAsFactors = FALSE)
+str(en_gram_1_round_2_2plus)
+```
+

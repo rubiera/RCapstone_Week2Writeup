@@ -28,8 +28,6 @@ Task 3: Draft "Next Word" Prediction Model
 Here are the correlations comparing within twitter and blogs.
 
 ![Correlations within subsets of the data](words-within-1.png)
-![Correlations within subsets of the data](words-within-1-1.png)
-![Correlations within subsets of the data](words-within-2-1.png)
 
 ![cross correlations](words-across-1.png)
 

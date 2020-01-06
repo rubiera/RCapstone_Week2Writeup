@@ -35,12 +35,12 @@ Here are the correlations comparing within twitter and blogs.
 
 Here are the most common words found in the testing dataset.
 
+![common words 1 gram](1-gram-blogs-plot-1.png)
+![common words 2 gram](2-gram-blogs-plot-1.png)
+
+Here are the most common words found in the 70 percent training dataset.
+
 ![common words 1 gram](testing-gram-1-common-1.png)
 ![common words 2 gram](testing-gram-2-common-1.png)
 ![common words 3 gram](testing-gram-3-common-1.png)
 
-Here are the most common words found in the 70 percent training dataset.
-
-![common words 1 gram](1-gram-blogs-plot-1.png)
-![common words 2 gram](2-gram-blogs-plot-1.png)
-![common words 3 gram](3-gram-blogs-plot-1.png)
